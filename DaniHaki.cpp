@@ -1,6 +1,6 @@
 #include "DaniHakiComponent.h"
 #include "DaniStatsComponent.h"
-#include "DaniCharacter.h"
+#include "PJ1.h"
 
 UDaniHakiComponent::UDaniHakiComponent()
 {

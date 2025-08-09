@@ -1,132 +1,111 @@
-﻿#pragma once
+﻿#include "DaniStatsComponent.h"
+#include "PJ1.h"
+#include "TimerManager.h"
 
-#include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
-#include "DaniStatsStructs.h"
-#include "DaniStatsComponent.generated.h"
-
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStatChanged, EStatType, StatType, float, NewValue);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStaminaExhausted);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnHealthDepleted);
-
-UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class DANIGAME_API UDaniStatsComponent : public UActorComponent
+UDaniStatsComponent::UDaniStatsComponent()
 {
-    GENERATED_BODY()
+    PrimaryComponentTick.bCanEverTick = true;
+    CurrentHealth = 100.0f;
+    CurrentStamina = 100.0f;
+}
 
-public:
-    UDaniStatsComponent();
+void UDaniStatsComponent::BeginPlay()
+{
+    Super::BeginPlay();
 
-protected:
-    virtual void BeginPlay() override;
-    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+    // Inicializar stats
+    CurrentStats = BaseStats;
+    CurrentHealth = BaseStats.MaxHealth;
+    CurrentStamina = BaseStats.MaxStamina;
 
-public:
-    // ─── BASE STATS ──────────────────────────────────────────────────
-    UPROPERTY(EditDefaultsOnly, Replicated, Category = "Stats")
-    FCharacterStats BaseStats;
+    // Configurar regeneración
+    GetWorld()->GetTimerManager().SetTimer(
+        RegenerationTimerHandle,
+        this,
+        &UDaniStatsComponent::RegenerateStamina,
+        0.2f, // Intervalo corto para regeneración suave
+        true
+    );
+}
 
-    // ─── CURRENT STATS ──────────────────────────────────────────────
-    UPROPERTY(VisibleAnywhere, Replicated, Category = "Stats")
-    float CurrentHealth;
+void UDaniStatsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    UPROPERTY(VisibleAnywhere, Replicated, Category = "Stats")
-    float CurrentStamina;
+    // Actualizar stats modificadas
+    UpdateStats();
 
-    // ─── STAT MODIFIERS ─────────────────────────────────────────────
-    UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-    float DefenseModifier = 0.0f;
+    // Regeneración continua
+    RegenerateStamina(DeltaTime);
+}
 
-    UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-    float AttackModifier = 0.0f;
+void UDaniStatsComponent::UpdateStats()
+{
+    // Copiar stats base
+    CurrentStats = BaseStats;
 
-    UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-    float DodgeChanceModifier = 0.0f;
+    // Aplicar modificadores de nivel de espada
+    float SwordBonus = SwordLevel * 0.05f; // 5% por nivel
+    CurrentStats.MeleeDamage *= (1.0f + SwordBonus);
 
-    UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-    float WalkSpeedModifier = 1.0f; // Multiplicativo (1.0 = 100%)
+    // Aplicar modificadores de nivel de armas de fuego
+    float GunBonus = GunLevel * 0.03f; // 3% por nivel
+    CurrentStats.RangedDamage *= (1.0f + GunBonus);
+    CurrentStats.RangedAccuracy += GunLevel * 0.02f; // +2% precisión por nivel
 
-    UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-    float SprintSpeedModifier = 1.0f; // Multiplicativo
+    // Aplicar modificadores de Devil Essence
+    float EssenceBonus = DevilEssenceLevel * 0.04f; // 4% por nivel
+    CurrentStats.SpecialDamage *= (1.0f + EssenceBonus);
 
-    // ─── EVENTS ─────────────────────────────────────────────────────
-    UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
-    FOnStatChanged OnStatChanged;
+    // Aplicar modificadores acumulativos
+    CurrentStats.AttackPower *= (1.0f + TotalAttackModifier);
+    CurrentStats.DefensePower *= (1.0f + TotalDefenseModifier);
+    CurrentStats.DodgeChance = FMath::Clamp(CurrentStats.DodgeChance + TotalDodgeModifier, 0.0f, 0.95f);
 
-    UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
-    FOnStaminaExhausted OnStaminaExhausted;
+    // Notificar cambios
+    OnCombatStatChanged.Broadcast(CurrentStats);
+}
 
-    UPROPERTY(BlueprintAssignable, Category = "Stats|Events")
-    FOnHealthDepleted OnHealthDepleted;
+void UDaniStatsComponent::RegenerateStamina(float DeltaTime)
+{
+    if (CurrentStamina < CurrentStats.MaxStamina)
+    {
+        float RegenAmount = CurrentStats.StaminaRegenRate * DeltaTime;
+        CurrentStamina = FMath::Min(CurrentStamina + RegenAmount, CurrentStats.MaxStamina);
+        OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
+    }
+}
 
-    // ─── CORE FUNCTIONS ─────────────────────────────────────────────
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void ApplyDamage(float DamageAmount);
+bool UDaniStatsComponent::ConsumeStamina(float Amount)
+{
+    if (CurrentStamina >= Amount)
+    {
+        CurrentStamina -= Amount;
+        OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
+        return true;
+    }
+    return false;
+}
 
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void Heal(float HealAmount);
+bool UDaniStatsComponent::HasEnoughStamina(float RequiredStamina) const
+{
+    return CurrentStamina >= RequiredStamina;
+}
 
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    bool TryConsumeStamina(float Amount);
+void UDaniStatsComponent::AddAttackModifier(float Modifier)
+{
+    TotalAttackModifier += Modifier;
+    UpdateStats();
+}
 
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void StartStaminaRegenDelay(float Delay = 2.0f);
+void UDaniStatsComponent::AddDefenseModifier(float Modifier)
+{
+    TotalDefenseModifier += Modifier;
+    UpdateStats();
+}
 
-    // ─── MODIFIER FUNCTIONS ─────────────────────────────────────────
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void AddDefenseModifier(float Modifier);
-
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void AddAttackModifier(float Modifier);
-
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void AddDodgeChanceModifier(float Modifier);
-
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void AddWalkSpeedModifier(float Modifier);
-
-    UFUNCTION(BlueprintCallable, Category = "Stats")
-    void AddSprintSpeedModifier(float Modifier);
-
-    // ─── GETTERS ───────────────────────────────────────────────────
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetCurrentDefense() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetCurrentAttack() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetCurrentDodgeChance() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetCurrentWalkSpeed() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetCurrentSprintSpeed() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetHealthPercentage() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    float GetStaminaPercentage() const;
-
-    UFUNCTION(BlueprintPure, Category = "Stats")
-    bool IsExhausted() const;
-
-private:
-    // ─── PRIVATE FUNCTIONS ─────────────────────────────────────────
-    void UpdateModifiedStats();
-    void RegenerateStamina(float DeltaTime);
-    void HandleStaminaExhaustion();
-    void OnRegenDelayEnded();
-    void RecoverFromExhaustion();
-
-    // ─── TIMERS ────────────────────────────────────────────────────
-    FTimerHandle StaminaRegenDelayHandle;
-    FTimerHandle ExhaustionRecoveryHandle;
-
-    // ─── STATE ─────────────────────────────────────────────────────
-    bool bIsExhausted = false;
-    bool bCanRegenStamina = true;
-};
+void UDaniStatsComponent::AddDodgeModifier(float Modifier)
+{
+    TotalDodgeModifier += Modifier;
+    UpdateStats();
+}

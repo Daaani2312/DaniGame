@@ -1,5 +1,5 @@
 #include "DaniGameMode.h"
-#include "DaniCharacter.h"
+#include "PJ1.h"
 #include "DaniPlayerController.h"
 
 ADaniGameMode::ADaniGameMode()

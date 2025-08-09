@@ -1,238 +1,111 @@
 #include "DaniStatsComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/Character.h"
+#include "PJ1.h"
 #include "TimerManager.h"
-#include "Net/UnrealNetwork.h"
 
 UDaniStatsComponent::UDaniStatsComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    SetIsReplicatedByDefault(true);
+    CurrentHealth = 100.0f;
+    CurrentStamina = 100.0f;
 }
 
 void UDaniStatsComponent::BeginPlay()
 {
     Super::BeginPlay();
 
+    // Inicializar stats
+    CurrentStats = BaseStats;
     CurrentHealth = BaseStats.MaxHealth;
     CurrentStamina = BaseStats.MaxStamina;
 
-    WalkSpeedModifier = 1.0f;
-    SprintSpeedModifier = 1.0f;
-
-    UpdateMovementSpeed();
-}
-
-void UDaniStatsComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
-    DOREPLIFETIME(UDaniStatsComponent, BaseStats);
-    DOREPLIFETIME(UDaniStatsComponent, CurrentHealth);
-    DOREPLIFETIME(UDaniStatsComponent, CurrentStamina);
-    DOREPLIFETIME(UDaniStatsComponent, bIsExhausted);
+    // Configurar regeneración
+    GetWorld()->GetTimerManager().SetTimer(
+        RegenerationTimerHandle,
+        this,
+        &UDaniStatsComponent::RegenerateStamina,
+        0.2f, // Intervalo corto para regeneración suave
+        true
+    );
 }
 
 void UDaniStatsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    if (bCanRegenStamina && !bIsExhausted)
-    {
-        RegenerateStamina(DeltaTime);
-    }
+    // Actualizar stats modificadas
+    UpdateStats();
+
+    // Regeneración continua
+    RegenerateStamina(DeltaTime);
 }
 
-void UDaniStatsComponent::ApplyDamage(float DamageAmount)
+void UDaniStatsComponent::UpdateStats()
 {
-    if (DamageAmount <= 0.0f) return;
+    // Copiar stats base
+    CurrentStats = BaseStats;
 
-    CurrentHealth = FMath::Max(CurrentHealth - DamageAmount, 0.0f);
-    OnStatChanged.Broadcast(EStatType::Health, CurrentHealth);
+    // Aplicar modificadores de nivel de espada
+    float SwordBonus = SwordLevel * 0.05f; // 5% por nivel
+    CurrentStats.MeleeDamage *= (1.0f + SwordBonus);
 
-    if (CurrentHealth <= 0.0f)
-    {
-        OnHealthDepleted.Broadcast();
-    }
-}
+    // Aplicar modificadores de nivel de armas de fuego
+    float GunBonus = GunLevel * 0.03f; // 3% por nivel
+    CurrentStats.RangedDamage *= (1.0f + GunBonus);
+    CurrentStats.RangedAccuracy += GunLevel * 0.02f; // +2% precisión por nivel
 
-void UDaniStatsComponent::Heal(float HealAmount)
-{
-    if (HealAmount <= 0.0f) return;
+    // Aplicar modificadores de Devil Essence
+    float EssenceBonus = DevilEssenceLevel * 0.04f; // 4% por nivel
+    CurrentStats.SpecialDamage *= (1.0f + EssenceBonus);
 
-    CurrentHealth = FMath::Min(CurrentHealth + HealAmount, BaseStats.MaxHealth);
-    OnStatChanged.Broadcast(EStatType::Health, CurrentHealth);
-}
+    // Aplicar modificadores acumulativos
+    CurrentStats.AttackPower *= (1.0f + TotalAttackModifier);
+    CurrentStats.DefensePower *= (1.0f + TotalDefenseModifier);
+    CurrentStats.DodgeChance = FMath::Clamp(CurrentStats.DodgeChance + TotalDodgeModifier, 0.0f, 0.95f);
 
-bool UDaniStatsComponent::TryConsumeStamina(float Amount)
-{
-    if (CurrentStamina < Amount)
-    {
-        if (!bIsExhausted)
-        {
-            HandleStaminaExhaustion();
-        }
-        return false;
-    }
-
-    CurrentStamina -= Amount;
-    bCanRegenStamina = false;
-    OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
-
-    StartStaminaRegenDelay();
-
-    if (CurrentStamina <= 0.0f && !bIsExhausted)
-    {
-        HandleStaminaExhaustion();
-    }
-
-    return true;
-}
-
-void UDaniStatsComponent::StartStaminaRegenDelay(float Delay)
-{
-    GetWorld()->GetTimerManager().SetTimer(
-        StaminaRegenDelayHandle,
-        this,
-        &UDaniStatsComponent::OnRegenDelayEnded,
-        Delay,
-        false
-    );
+    // Notificar cambios
+    OnCombatStatChanged.Broadcast(CurrentStats);
 }
 
 void UDaniStatsComponent::RegenerateStamina(float DeltaTime)
 {
-    if (!bCanRegenStamina || CurrentStamina >= BaseStats.MaxStamina)
+    if (CurrentStamina < CurrentStats.MaxStamina)
     {
-        return;
-    }
-
-    const float RegenAmount = BaseStats.StaminaRegen * DeltaTime;
-    CurrentStamina = FMath::Min(CurrentStamina + RegenAmount, BaseStats.MaxStamina);
-    OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
-
-    if (bIsExhausted && CurrentStamina >= BaseStats.MaxStamina * 0.3f)
-    {
-        RecoverFromExhaustion();
+        float RegenAmount = CurrentStats.StaminaRegenRate * DeltaTime;
+        CurrentStamina = FMath::Min(CurrentStamina + RegenAmount, CurrentStats.MaxStamina);
+        OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
     }
 }
 
-void UDaniStatsComponent::OnRegenDelayEnded()
+bool UDaniStatsComponent::ConsumeStamina(float Amount)
 {
-    bCanRegenStamina = true;
+    if (CurrentStamina >= Amount)
+    {
+        CurrentStamina -= Amount;
+        OnStatChanged.Broadcast(EStatType::Stamina, CurrentStamina);
+        return true;
+    }
+    return false;
 }
 
-void UDaniStatsComponent::HandleStaminaExhaustion()
+bool UDaniStatsComponent::HasEnoughStamina(float RequiredStamina) const
 {
-    if (bIsExhausted) return;
-
-    bIsExhausted = true;
-    OnStaminaExhausted.Broadcast();
-
-    AddWalkSpeedModifier(-0.5f);
-    AddSprintSpeedModifier(-0.7f);
-    UpdateMovementSpeed();
-
-    GetWorld()->GetTimerManager().SetTimer(
-        ExhaustionRecoveryHandle,
-        this,
-        &UDaniStatsComponent::RecoverFromExhaustion,
-        5.0f,
-        false
-    );
-}
-
-void UDaniStatsComponent::RecoverFromExhaustion()
-{
-    if (!bIsExhausted) return;
-
-    bIsExhausted = false;
-
-    AddWalkSpeedModifier(0.5f);
-    AddSprintSpeedModifier(0.7f);
-    UpdateMovementSpeed();
-}
-
-// --- Los métodos AddDefenseModifier, AddAttackModifier, etc., y getters quedan igual ---
-
-void UDaniStatsComponent::AddDefenseModifier(float Modifier)
-{
-    DefenseModifier += Modifier;
-    OnStatChanged.Broadcast(EStatType::Defense, GetCurrentDefense());
+    return CurrentStamina >= RequiredStamina;
 }
 
 void UDaniStatsComponent::AddAttackModifier(float Modifier)
 {
-    AttackModifier += Modifier;
-    OnStatChanged.Broadcast(EStatType::Attack, GetCurrentAttack());
+    TotalAttackModifier += Modifier;
+    UpdateStats();
 }
 
-void UDaniStatsComponent::AddDodgeChanceModifier(float Modifier)
+void UDaniStatsComponent::AddDefenseModifier(float Modifier)
 {
-    DodgeChanceModifier += Modifier;
-    OnStatChanged.Broadcast(EStatType::DodgeChance, GetCurrentDodgeChance());
+    TotalDefenseModifier += Modifier;
+    UpdateStats();
 }
 
-void UDaniStatsComponent::AddWalkSpeedModifier(float Modifier)
+void UDaniStatsComponent::AddDodgeModifier(float Modifier)
 {
-    WalkSpeedModifier = FMath::Max(WalkSpeedModifier + Modifier, 0.1f);
-    UpdateMovementSpeed();
-    OnStatChanged.Broadcast(EStatType::WalkSpeed, GetCurrentWalkSpeed());
-}
-
-void UDaniStatsComponent::AddSprintSpeedModifier(float Modifier)
-{
-    SprintSpeedModifier = FMath::Max(SprintSpeedModifier + Modifier, 0.1f);
-    UpdateMovementSpeed();
-    OnStatChanged.Broadcast(EStatType::SprintSpeed, GetCurrentSprintSpeed());
-}
-
-void UDaniStatsComponent::UpdateMovementSpeed()
-{
-    ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-    if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
-    {
-        OwnerCharacter->GetCharacterMovement()->MaxWalkSpeed = GetCurrentWalkSpeed();
-        // SprintSpeed se maneja en otro lugar al iniciar sprint
-    }
-}
-
-float UDaniStatsComponent::GetCurrentDefense() const
-{
-    return BaseStats.Defense * (1.0f + DefenseModifier);
-}
-
-float UDaniStatsComponent::GetCurrentAttack() const
-{
-    return BaseStats.AttackPower * (1.0f + AttackModifier);
-}
-
-float UDaniStatsComponent::GetCurrentDodgeChance() const
-{
-    return FMath::Clamp(BaseStats.DodgeChance * (1.0f + DodgeChanceModifier), 0.0f, 0.95f);
-}
-
-float UDaniStatsComponent::GetCurrentWalkSpeed() const
-{
-    return BaseStats.WalkSpeed * WalkSpeedModifier;
-}
-
-float UDaniStatsComponent::GetCurrentSprintSpeed() const
-{
-    return BaseStats.SprintSpeed * SprintSpeedModifier;
-}
-
-float UDaniStatsComponent::GetHealthPercentage() const
-{
-    return BaseStats.MaxHealth > 0 ? CurrentHealth / BaseStats.MaxHealth : 0.0f;
-}
-
-float UDaniStatsComponent::GetStaminaPercentage() const
-{
-    return BaseStats.MaxStamina > 0 ? CurrentStamina / BaseStats.MaxStamina : 0.0f;
-}
-
-bool UDaniStatsComponent::IsExhausted() const
-{
-    return bIsExhausted;
+    TotalDodgeModifier += Modifier;
+    UpdateStats();
 }

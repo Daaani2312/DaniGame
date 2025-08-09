@@ -13,7 +13,28 @@ public:
     virtual void StartBlock_Implementation() override;
     virtual void EndBlock_Implementation() override;
 
+protected:
+    // Efectos visuales
+    UPROPERTY(EditDefaultsOnly, Category = "Combat|Effects")
+    UParticleSystem* FistImpactEffect;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Combat|Effects")
+    USoundBase* FistImpactSound;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Combat|Effects")
+    USoundBase* FistWhooshSound;
+
+    // Parámetros de combate
+    UPROPERTY(EditDefaultsOnly, Category = "Combat|Parameters")
+    float FistRange = 200.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Combat|Parameters")
+    float BaseDamage = 15.0f;
+
 private:
     void PlayFistCombo(int32 ComboIndex);
     void ApplyFistImpact();
-}; #pragma once
+    void SpawnFistTrail();
+    void TriggerScreenShake(float Intensity);
+    void TriggerHitStop(float Duration);
+};

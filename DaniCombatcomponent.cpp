@@ -1,17 +1,55 @@
-#include "DaniCombatComponent.h"
+﻿#include "DaniCombatComponent.h"
 #include "DaniCombatStyleBase.h"
+#include "Engine/World.h"
 
 UDaniCombatComponent::UDaniCombatComponent()
 {
-    PrimaryComponentTick.bCanEverTick = true;
+    PrimaryComponentTick.bCanEverTick = false;
+    SetIsReplicatedByDefault(true);
 }
 
 void UDaniCombatComponent::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Inicializar con estilo por defecto (mano vac�a)
+    // Initialize with default empty-handed style
     SwitchCombatStyle(UDaniFistStyle::StaticClass());
+}
+
+void UDaniCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    CleanupCurrentStyle();
+    Super::EndPlay(EndPlayReason);
+}
+
+void UDaniCombatComponent::CleanupCurrentStyle()
+{
+    if (CurrentCombatStyle)
+    {
+        CurrentCombatStyle->OnDeactivated();
+        CurrentCombatStyle->DestroyComponent();
+        CurrentCombatStyle = nullptr;
+    }
+}
+
+void UDaniCombatComponent::InitializeNewStyle(TSubclassOf<UDaniCombatStyleBase> StyleClass)
+{
+    if (!StyleClass || !GetOwner()) return;
+
+    // Create new style component
+    CurrentCombatStyle = NewObject<UDaniCombatStyleBase>(this, StyleClass, NAME_None, RF_NoFlags, nullptr, false, nullptr);
+
+    if (CurrentCombatStyle)
+    {
+        CurrentCombatStyle->RegisterComponent();
+        CurrentCombatStyle->OnActivated(GetOwner());
+
+        // Notify about combat mode if active
+        if (bCombatModeActive)
+        {
+            CurrentCombatStyle->OnCombatModeChanged(true);
+        }
+    }
 }
 
 void UDaniCombatComponent::SetCombatMode(bool bEnabled)
@@ -47,29 +85,7 @@ void UDaniCombatComponent::SwitchCombatStyle(TSubclassOf<UDaniCombatStyleBase> N
     OnCombatStyleChanged.Broadcast(OldStyleClass, NewStyleClass);
 }
 
-void UDaniCombatComponent::CleanupCurrentStyle()
-{
-    if (CurrentCombatStyle)
-    {
-        CurrentCombatStyle->OnDeactivated();
-        CurrentCombatStyle->DestroyComponent();
-        CurrentCombatStyle = nullptr;
-    }
-}
-
-void UDaniCombatComponent::InitializeNewStyle(TSubclassOf<UDaniCombatStyleBase> StyleClass)
-{
-    CurrentCombatStyle = NewObject<UDaniCombatStyleBase>(this, StyleClass);
-    CurrentCombatStyle->RegisterComponent();
-    CurrentCombatStyle->OnActivated(GetOwner());
-
-    if (bCombatModeActive)
-    {
-        CurrentCombatStyle->OnCombatModeChanged(true);
-    }
-}
-
-// ??? INPUT INTERFACE ???????????????????????????????????????????????
+// ─── INPUT INTERFACE ──────────────────────────────────────────────
 void UDaniCombatComponent::ExecuteAttack(int32 AttackIndex)
 {
     if (CurrentCombatStyle && bCombatModeActive)
@@ -108,4 +124,9 @@ void UDaniCombatComponent::ReloadWeapon()
     {
         CurrentCombatStyle->ReloadWeapon();
     }
+}
+
+TSubclassOf<UDaniCombatStyleBase> UDaniCombatComponent::GetCurrentStyleClass() const
+{
+    return CurrentCombatStyle ? CurrentCombatStyle->GetClass() : nullptr;
 }

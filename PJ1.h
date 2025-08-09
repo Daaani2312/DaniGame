@@ -1,39 +1,86 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "DaniStatsComponent.h"
-#include "DaniHakiComponent.h"
-#include "DaniCharacter.generated.h"
+#include "DaniCombatTypes.h"
+#include "PJ1.generated.h"
+
+// Forward declarations de componentes
+class UDaniStatsComponent;
+class UDaniHakiComponent;
+class UDaniCombatComponent;
+class UDaniPlayerJobComponent;
 
 UCLASS()
-class DANIGAME_API ADaniCharacter : public ACharacter
+class DANIGAME_API APJ1 : public ACharacter
 {
     GENERATED_BODY()
 
 public:
-    ADaniCharacter();
+    APJ1();
 
-    virtual void Tick(float DeltaTime) override;
+protected:
+    virtual void BeginPlay() override;
+    virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
+    // ─── Componentes principales ───────────────────────────────
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
     UDaniStatsComponent* StatsComponent;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
     UDaniHakiComponent* HakiComponent;
 
-protected:
-    virtual void BeginPlay() override;
-    virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UDaniPlayerJobComponent* JobComponent;
 
-    // Movement
-    void MoveForward(float Value);
-    void MoveRight(float Value);
-    void SprintStart();
-    void SprintEnd();
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UDaniMarketComponent* MarketComponent;
 
-    // Haki Abilities
-    void ActivateArmamentHaki();
-    void ActivateObservationHaki();
-    void ActivateConquerorsHaki();
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UDaniRancherComponent* RancherComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UDaniCombatComponent* CombatComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    class UDaniRaceComponent* RaceComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    class UDaniSocialComponent* SocialComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    class UDaniInventoryComponent* InventoryComponent;
+
+    // ─── NUEVO: Componente de trabajos ──────────────────────────
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    UDaniPlayerJobComponent* JobComponent;
+
+private:
+    // ─── Input Bindings ─────────────────────────────────────────
+    void SetupMovementInput();
+    void SetupHakiInput();
+    void SetupCombatInput();
+
+    // ─── Combat Actions ─────────────────────────────────────────
+    void ToggleCombatMode();
+    void ExecuteBasicAttack();
+    void StartBlocking();
+    void StopBlocking();
+    void ReloadWeapon();
+    void ActivateCombatAbility();
+    void SwitchToSwordStyle();
+    void SwitchToFistStyle();
+
+    // ─── Event Handlers ─────────────────────────────────────────
+    UFUNCTION()
+    void HandleCombatModeEnabled();
+
+    UFUNCTION()
+    void HandleCombatModeDisabled();
+
+    UFUNCTION()
+    void HandleCombatStyleChanged(TSubclassOf<UDaniCombatStyleBase> OldStyle, TSubclassOf<UDaniCombatStyleBase> NewStyle);
+
+    // ─── Helpers ────────────────────────────────────────────────
+    bool CanExecuteCombatAction() const;
 };

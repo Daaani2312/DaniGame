@@ -2,97 +2,100 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "DaniHakiTypes.h"
-#include "DaniHakiComponent.generated.h"
+#include "DaniStatsStructs.h"
+#include "DaniStatsComponent.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHakiActivated, EHakiType, HakiType, float, StaminaCost);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHakiDeactivated, EHakiType, HakiType);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHakiLevelUp, EHakiType, HakiType, int32, NewLevel);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStatChanged, EStatType, StatType, float, NewValue);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCombatStatChanged, FCombatStat, ChangedStat);
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class DANIGAME_API UDaniHakiComponent : public UActorComponent
+class DANIGAME_API UDaniStatsComponent : public UActorComponent
 {
     GENERATED_BODY()
 
 public:
-    UDaniHakiComponent();
+    UDaniStatsComponent();
+
+    // Delegados
+    UPROPERTY(BlueprintAssignable, Category = "Stats")
+    FOnStatChanged OnStatChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Stats|Combat")
+    FOnCombatStatChanged OnCombatStatChanged;
+
+    // Niveles de habilidad
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Levels")
+    int32 SwordLevel = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Levels")
+    int32 GunLevel = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats|Levels")
+    int32 DevilEssenceLevel = 1;
+
+    // Stats base
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    const FCharacterStats& GetBaseStats() const { return BaseStats; }
+
+    // Stats modificadas (con buffs/debuffs)
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    const FCharacterStats& GetModifiedStats() const { return CurrentStats; }
+
+    // Manejo de stamina
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    bool ConsumeStamina(float Amount);
+
+    // Modificadores de stats
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    void AddAttackModifier(float Modifier);
+
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    void AddDefenseModifier(float Modifier);
+
+    UFUNCTION(BlueprintCallable, Category = "Stats")
+    void AddDodgeModifier(float Modifier);
+
+    // Getters
+    UFUNCTION(BlueprintPure, Category = "Stats")
+    float GetCurrentHealth() const { return CurrentHealth; }
+
+    UFUNCTION(BlueprintPure, Category = "Stats")
+    float GetCurrentStamina() const { return CurrentStamina; }
+
+    UFUNCTION(BlueprintPure, Category = "Stats")
+    bool HasEnoughStamina(float RequiredStamina) const;
 
 protected:
     virtual void BeginPlay() override;
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-
-public:
-    // ─── HAKI CONTROL ─────────────────────────────────────────────────
-    UFUNCTION(BlueprintCallable, Category = "Haki")
-    bool TryActivateHaki(EHakiType HakiType);
-
-    UFUNCTION(BlueprintCallable, Category = "Haki")
-    void DeactivateHaki(EHakiType HakiType);
-
-    UFUNCTION(BlueprintCallable, Category = "Haki")
-    bool IsHakiActive(EHakiType HakiType) const;
-
-    // ─── PROGRESSION ─────────────────────────────────────────────────
-    UFUNCTION(BlueprintCallable, Category = "Haki")
-    int32 GetHakiLevel(EHakiType HakiType) const;
-
-    UFUNCTION(BlueprintCallable, Category = "Haki")
-    int32 GetHakiUsageCount(EHakiType HakiType) const;
-
-    // ─── EVENTS ──────────────────────────────────────────────────────
-    UPROPERTY(BlueprintAssignable, Category = "Haki|Events")
-    FOnHakiActivated OnHakiActivated;
-
-    UPROPERTY(BlueprintAssignable, Category = "Haki|Events")
-    FOnHakiDeactivated OnHakiDeactivated;
-
-    UPROPERTY(BlueprintAssignable, Category = "Haki|Events")
-    FOnHakiLevelUp OnHakiLevelUp;
 
 private:
-    // ─── HAKI STATE ──────────────────────────────────────────────────
-    UPROPERTY(Replicated)
-    TMap<EHakiType, int32> HakiUsageCounts;
+    // Stats base (configurables en editor)
+    UPROPERTY(EditDefaultsOnly, Category = "Stats")
+    FCharacterStats BaseStats;
 
-    UPROPERTY(Replicated)
-    TMap<EHakiType, int32> HakiLevels;
+    // Stats actuales (con modificadores)
+    UPROPERTY(VisibleAnywhere, Category = "Stats")
+    FCharacterStats CurrentStats;
 
-    UPROPERTY(Replicated)
-    TMap<EHakiType, bool> ActiveHakis;
+    // Valores actuales
+    UPROPERTY(VisibleAnywhere, Category = "Stats")
+    float CurrentHealth;
 
-    UPROPERTY(Transient)
-    TMap<EHakiType, float> HakiCooldowns;
+    UPROPERTY(VisibleAnywhere, Category = "Stats")
+    float CurrentStamina;
 
-    // ─── TIMERS ──────────────────────────────────────────────────────
-    FTimerHandle ConquerorsTimerHandle;
-    FTimerHandle ObservationTickHandle;
+    // Modificadores acumulativos
+    float TotalAttackModifier = 0.0f;
+    float TotalDefenseModifier = 0.0f;
+    float TotalDodgeModifier = 0.0f;
 
-    // ─── REFERENCES ──────────────────────────────────────────────────
-    UPROPERTY(Transient)
-    TWeakObjectPtr<ADaniCharacter> OwnerCharacter;
+    // Temporizador para regeneración
+    FTimerHandle RegenerationTimerHandle;
 
-    UPROPERTY(Transient)
-    TWeakObjectPtr<UDaniStatsComponent> StatsComponent;
+    // Actualizar stats con modificadores
+    void UpdateStats();
 
-    // ─── CONFIGURABLES ───────────────────────────────────────────────
-    UPROPERTY(EditDefaultsOnly, Category = "Haki|Balance", meta = (ClampMin = 1))
-    int32 MaxLevel = 10;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Haki|Balance")
-    float ConquerorsMaxDuration = 30.0f;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Haki|Balance")
-    float ObservationTickInterval = 0.2f;
-
-    // ─── PRIVATE FUNCTIONS ───────────────────────────────────────────
-    void OnObservationTick();
-    void DeactivateConquerorsHaki();
-
-    void IncreaseHakiUsage(EHakiType HakiType);
-    void CheckLevelUp(EHakiType HakiType);
-
-    float GetStaminaCostForHaki(EHakiType HakiType) const;
-    float GetCooldownForHaki(EHakiType HakiType) const;
-    int32 GetXPToNextLevel(int32 CurrentLevel) const;
+    // Regenerar stamina
+    void RegenerateStamina(float DeltaTime);
 };

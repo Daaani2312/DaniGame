@@ -1,101 +1,96 @@
-#include "DaniCharacter.h"
-#include "GameFramework/SpringArmComponent.h"
-#include "Camera/CameraComponent.h"
-#include "Components/InputComponent.h"
+#include "PJ1.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Components/InputComponent.h"
 
-ADaniCharacter::ADaniCharacter()
+// Componentes existentes
+#include "DaniStatsComponent.h"
+#include "DaniHakiComponent.h"
+#include "DaniCombatComponent.h"
+#include "DaniSwordStyle.h"
+#include "DaniFistStyle.h"
+
+// NUEVO: Sistema de trabajos y economía
+#include "DaniPlayerJobComponent.h"
+#include "DaniMarketComponent.h"
+#include "DaniRancherComponent.h"
+
+APJ1::APJ1()
 {
     PrimaryActorTick.bCanEverTick = true;
-
     bReplicates = true;
     bReplicateMovement = true;
 
+    // Componentes existentes
     StatsComponent = CreateDefaultSubobject<UDaniStatsComponent>(TEXT("StatsComponent"));
     HakiComponent = CreateDefaultSubobject<UDaniHakiComponent>(TEXT("HakiComponent"));
+    CombatComponent = CreateDefaultSubobject<UDaniCombatComponent>(TEXT("CombatComponent"));
+
+    // NUEVOS COMPONENTES
+    JobComponent = CreateDefaultSubobject<UDaniPlayerJobComponent>(TEXT("JobComponent"));
+    MarketComponent = CreateDefaultSubobject<UDaniMarketComponent>(TEXT("MarketComponent"));
+    RancherComponent = CreateDefaultSubobject<UDaniRancherComponent>(TEXT("RancherComponent"));
 }
 
-void ADaniCharacter::BeginPlay()
+void APJ1::BeginPlay()
 {
     Super::BeginPlay();
+
+    if (CombatComponent)
+    {
+        CombatComponent->OnCombatModeEnabled.AddDynamic(this, &APJ1::HandleCombatModeEnabled);
+        CombatComponent->OnCombatModeDisabled.AddDynamic(this, &APJ1::HandleCombatModeDisabled);
+        CombatComponent->OnCombatStyleChanged.AddDynamic(this, &APJ1::HandleCombatStyleChanged);
+
+        // Estilo inicial
+        CombatComponent->SwitchCombatStyle(UDaniFistStyle::StaticClass());
+    }
+
+    // Aquí podrías iniciar funcionalidades de JobComponent, MarketComponent y RancherComponent si tienen eventos o lógica.
 }
 
-void ADaniCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+void APJ1::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-    PlayerInputComponent->BindAxis("MoveForward", this, &ADaniCharacter::MoveForward);
-    PlayerInputComponent->BindAxis("MoveRight", this, &ADaniCharacter::MoveRight);
-
-    PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &ADaniCharacter::SprintStart);
-    PlayerInputComponent->BindAction("Sprint", IE_Released, this, &ADaniCharacter::SprintEnd);
-
-    PlayerInputComponent->BindAction("ArmamentHaki", IE_Pressed, this, &ADaniCharacter::ActivateArmamentHaki);
-    PlayerInputComponent->BindAction("ObservationHaki", IE_Pressed, this, &ADaniCharacter::ActivateObservationHaki);
-    PlayerInputComponent->BindAction("ConquerorsHaki", IE_Pressed, this, &ADaniCharacter::ActivateConquerorsHaki);
+    SetupMovementInput();
+    SetupHakiInput();
+    SetupCombatInput();
 }
 
-void ADaniCharacter::MoveForward(float Value)
+// -- Las funciones SetupMovementInput, SetupHakiInput, SetupCombatInput y demás acciones de combate van igual que antes --
+
+bool APJ1::CanExecuteCombatAction() const
 {
-    if (Value != 0.0f)
+    return CombatComponent &&
+        CombatComponent->IsInCombatMode() &&
+        StatsComponent &&
+        !StatsComponent->IsExhausted();
+}
+
+// Resto de funciones para combate (ToggleCombatMode, ExecuteBasicAttack, etc.) igual que las que ya tienes
+
+void APJ1::HandleCombatModeEnabled()
+{
+    if (GEngine)
     {
-        AddMovementInput(GetActorForwardVector(), Value);
+        GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Green, TEXT("Modo Combate Activado"));
     }
 }
 
-void ADaniCharacter::MoveRight(float Value)
+void APJ1::HandleCombatModeDisabled()
 {
-    if (Value != 0.0f)
+    if (GEngine)
     {
-        AddMovementInput(GetActorRightVector(), Value);
+        GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Modo Combate Desactivado"));
     }
 }
 
-void ADaniCharacter::SprintStart()
+void APJ1::HandleCombatStyleChanged(TSubclassOf<UDaniCombatStyleBase> OldStyle, TSubclassOf<UDaniCombatStyleBase> NewStyle)
 {
-    if (StatsComponent && StatsComponent->HasEnoughStamina(10.0f))
+    FString StyleName = NewStyle ? NewStyle->GetName() : "None";
+    if (GEngine)
     {
-        GetCharacterMovement()->MaxWalkSpeed = StatsComponent->GetModifiedStats().SprintSpeed;
-    }
-}
-
-void ADaniCharacter::SprintEnd()
-{
-    if (StatsComponent)
-    {
-        GetCharacterMovement()->MaxWalkSpeed = StatsComponent->GetModifiedStats().WalkSpeed;
-    }
-}
-
-void ADaniCharacter::ActivateArmamentHaki()
-{
-    if (HakiComponent)
-    {
-        HakiComponent->ActivateArmamentHaki();
-    }
-}
-
-void ADaniCharacter::ActivateObservationHaki()
-{
-    if (HakiComponent)
-    {
-        HakiComponent->ActivateObservationHaki();
-    }
-}
-
-void ADaniCharacter::ActivateConquerorsHaki()
-{
-    if (HakiComponent)
-    {
-        HakiComponent->ActivateConquerorsHaki();
-    }
-}
-void ADaniCharacter::Tick(float DeltaTime)
-{
-    Super::Tick(DeltaTime);
-
-    if (HakiComponent && HakiComponent->IsHakiActive(EHakiType::Observation))
-    {
-        // Aquí procesa efectos continuos de haki de observación, por ejemplo detectar enemigos o alertar
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Yellow,
+            FString::Printf(TEXT("Estilo cambiado a: %s"), *StyleName));
     }
 }
